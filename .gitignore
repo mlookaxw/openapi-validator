@@ -12,3 +12,7 @@ buildNumber.properties
 .project
 test-output
 .settings
+.vscode
+.idea
+
+lib/apigateway-dependencies

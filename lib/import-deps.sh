@@ -1,29 +1,47 @@
 #!/bin/bash
+set -euo pipefail
+
+CMD_NAME=$(basename $0)
+CMD_HOME=$(dirname $0)
 
 
-if [ $# -lt 2 ]
+PROJECT_DIR=$(realpath "${CMD_HOME}/..")
+LOCAL_REPO_DIR="${PROJECT_DIR}/lib/apigateway-dependencies"
+
+if [ "${1:-}" != "" ]
 then
-	echo "Provide API-Gateway installation folder and version. "
-	echo "For example: "
-	echo "./lib/import-deps.sh /opt/Axway/APIM/apigateway 7.7.20200930"
-	exit 10
+  AXWAY_HOME=$1
 fi
+if [ "${AXWAY_HOME:-}" == "" ]
+then
+    echo "Provide API-Gateway installation folder and version. "
+    echo "For example: "
+    echo "./lib/import-deps.sh /opt/Axway/7.7"
+    exit 10
+fi
+AXWAY_VERSION="7.7"
 
-local_repo=apigateway-dependencies
-
-# Copy required jars from an existing installation folder
-gatewayInstallationFolder=$1
-gatewayVersion=$2
+SYSTEM_LIB_DIR="${AXWAY_HOME}/apigateway/system/lib"
 
 copyDeps() {
-    local givenFile=$1
-	local group=$2
-    local artifact=$3
-    local version=$4
-	
-	# Locate the JAR within the Gateway installation folder
-	file=`ls -1 ${givenFile}`
-	
+    local folder=$1
+    local artifact=$2
+    local group="com.axway.apigw.local"
+    local version="${AXWAY_VERSION}"
+
+    # Locate the JAR within the Gateway installation folder
+    local file=$(ls -1 ${folder}/${artifact}-*.jar)
+    local num_files=$(echo "$file" | wc -l)
+    if [ $num_files -eq 0 ]
+    then
+      echo "ERROR: no files found for pattern ${givenFile}"
+      exit 1
+    elif [ $num_files -gt 1 ]
+    then
+      echo "ERROR: $num_files files found for pattern ${givenFile}"
+      exit 1
+    fi
+
     mvn install:install-file \
             -Dfile=${file} \
             -DgroupId=${group} \
@@ -31,13 +49,18 @@ copyDeps() {
             -Dversion=${version} \
             -Dpackaging=jar \
             -DgeneratePom=true \
-            -DlocalRepositoryPath=${local_repo}
+            -DlocalRepositoryPath=${LOCAL_REPO_DIR}
 }
 
 
-copyDeps "${gatewayInstallationFolder}/system/lib/plugins/vordel-mime-7.7.0*.jar" com.vordel.mime vordel-mime ${gatewayVersion}
-copyDeps "${gatewayInstallationFolder}/system/lib/plugins/apigw-common-2.4.0.jar" com.axway.apigw apigw-common 2.3.0
-#copyDeps "${gatewayInstallationFolder}/system/lib/pluings/vordel-common-7.7.0*.jar" com.vordel.common vordel-common ${gatewayVersion}
-copyDeps "${gatewayInstallationFolder}/system/lib/plugins/vordel-trace-7.7.0*.jar" com.vordel.trace vordel-trace ${gatewayVersion}
-copyDeps "${gatewayInstallationFolder}/system/lib/vordel-api-model-7.7.0*.jar" com.vordel vordel-api-model ${gatewayVersion}
-copyDeps "${gatewayInstallationFolder}/system/lib/vordel-core-runtime-7.7.0*.jar" com.vordel vordel-core-runtime ${gatewayVersion}
+copyDeps "${SYSTEM_LIB_DIR}"         "vordel-apimanager"
+copyDeps "${SYSTEM_LIB_DIR}"         "vordel-api-model"
+copyDeps "${SYSTEM_LIB_DIR}"         "vordel-core-controller"
+copyDeps "${SYSTEM_LIB_DIR}"         "vordel-core-runtime"
+copyDeps "${SYSTEM_LIB_DIR}"         "vordel-swagger-model"
+copyDeps "${SYSTEM_LIB_DIR}/plugins" "apigw-common"
+copyDeps "${SYSTEM_LIB_DIR}/plugins" "vordel-common"
+copyDeps "${SYSTEM_LIB_DIR}/plugins" "vordel-mime"
+copyDeps "${SYSTEM_LIB_DIR}/plugins" "vordel-trace"
+copyDeps "${SYSTEM_LIB_DIR}/plugins" "resource-repo"
+copyDeps "${SYSTEM_LIB_DIR}/modules" "jakarta.ws.rs-api"
