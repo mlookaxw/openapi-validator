@@ -13,7 +13,8 @@
 		<outputDirectory>ext/lib</outputDirectory>
 		<unpack>false</unpack>
 		<includes>
-			<include>io.swagger.*:*</include>
+			<include>io.swagger.*:swagger-parser</include>
+			<include>io.swagger.*:swagger-parser-v2-converter</include>
 			<include>com.atlassian.oai:*</include>
 			<include>com.fasterxml.jackson.datatype:*</include>
 			<include>com.github.axway-api-management-plus.openapi-validator:*</include>
