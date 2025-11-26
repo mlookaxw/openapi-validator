@@ -1,5 +1,6 @@
 package com.axway.apim.openapi.validator;
 
+import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -20,8 +21,16 @@ import com.atlassian.oai.validator.model.Response;
 import com.atlassian.oai.validator.report.ValidationReport;
 import com.atlassian.oai.validator.report.ValidationReport.Message;
 import com.axway.apim.openapi.validator.Utils.TraceLevel;
+import com.vordel.apiportal.api.portal.controller.APIRepositoryController;
+import com.vordel.apiportal.api.portal.controller.ApiProxyController;
+import com.vordel.apiportal.api.portal.controller.DiscoveryController;
+import com.vordel.apiportal.api.portal.controller.ServiceLocatorFactory;
+import com.vordel.apiportal.api.portal.model.agnostic.APIDefinition;
+import com.vordel.apiportal.api.portal.model.swagger.SwaggerVersion;
+import com.vordel.apiportal.api.portal.model.swagger.v11ex.Swagger;
 import com.vordel.mime.HeaderSet;
 import com.vordel.mime.QueryStringHeaderSet;
+import com.vordel.rr.Payload;
 
 /**
  * OpenAPIValidator
@@ -79,6 +88,18 @@ public class OpenAPIValidator
 			return validator;
 		}
 	}
+
+    public static synchronized OpenAPIValidator getInstance(String apiId, boolean useOriginalAPISpec) throws Throwable  {
+        if (instances4APIIDs.containsKey(apiId)) {
+            Utils.traceMessage("Using cached OpenAPI validator for API: " + apiId, TraceLevel.DEBUG);
+            return instances4APIIDs.get(apiId);
+        } else {
+            OpenAPIValidator validator = new OpenAPIValidator(apiId, useOriginalAPISpec);
+            instances4APIIDs.put(apiId, validator);
+            Utils.traceMessage("Using created OpenAPI validator for API: " + apiId, TraceLevel.DEBUG);
+            return validator;
+        }
+    }
     
     private OpenAPIValidator(String openAPISpec) {
 		super();
@@ -94,6 +115,59 @@ public class OpenAPIValidator
 			this.validator = OpenApiInteractionValidator.createForInlineApiSpecification(openAPISpec).build();
 		}
 	}
+
+    private OpenAPIValidator(String apiId, boolean useOriginalAPISpec) throws Throwable {
+        try {
+            String apiSpec = null;
+
+            if (!useOriginalAPISpec) {
+                DiscoveryController dc = ServiceLocatorFactory.internalWithRole("admin").getDiscoveryController();
+                Swagger swagger = dc.getSwaggerAPIbyID(apiId);
+                String version = "3.0";
+                if (swagger.getAvailableApiDefinitions().containsKey(SwaggerVersion.OAS_30)) {
+                    version = SwaggerVersion.OAS_30.getVersion();
+                } else if (swagger.getAvailableApiDefinitions().containsKey(SwaggerVersion.SWAGGER_20)) {
+                    version = SwaggerVersion.SWAGGER_20.getVersion();
+                } else if (swagger.getAvailableApiDefinitions().containsKey(SwaggerVersion.SWAGGER_11)) {
+                    version = SwaggerVersion.SWAGGER_11.getVersion();
+                } else {
+                    Utils.traceMessage("Unsupported Swagger version", TraceLevel.ERROR);
+                    throw new Exception("Unsupported Swagger version");
+                }
+                Utils.traceMessage("Load API definition: api=" + apiId + "; version=" + version, TraceLevel.INFO);
+
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                dc.exportAPI(version, apiId, false).write(bos);
+
+                apiSpec = bos.toString(StandardCharsets.UTF_8.name());
+            } else {
+                ApiProxyController ap = ServiceLocatorFactory.internalWithRole("admin").getApiProxyController();
+                String backendApiID = ap.getApiById(apiId).apiId;
+
+                APIRepositoryController ar = ServiceLocatorFactory.internalWithRole("admin").getAPIRepositoryController();
+                APIDefinition apidef = ar.getApiById(backendApiID);
+                if (apidef.getHasOriginalDefinition()) {
+                    try {
+                        Payload p = ar.getOriginalApi(backendApiID);
+                        apiSpec = new String(p.data, (p.encoding != null) ? p.encoding : StandardCharsets.UTF_8.name());
+                    } catch(Exception e) {
+                        throw new IllegalStateException("failed to load original API definition: " + apiId, e);
+                    }
+                } else {
+                    throw new IllegalStateException("original API spec is not supported for API: " + apiId);
+                }
+            }
+
+            this.validator = OpenApiInteractionValidator.createForInlineApiSpecification(apiSpec).withResolveCombinators(true).build();
+
+        } catch (ApiLoadException e) {
+            Utils.traceMessage("API specification is not compatible with OpenAPI specification", e, TraceLevel.ERROR);
+            throw e;
+        } catch (Throwable e) {
+            Utils.traceMessage("Error creating OpenAPI Validator for API: " + apiId, e, TraceLevel.ERROR);
+            throw e;
+        }
+    }
     
     private OpenAPIValidator(String apiId, String username, String password, String apiManagerUrl, boolean useOriginalAPISpec) throws Exception {
 		super();
